@@ -2,13 +2,14 @@
 
 ### Parameters
 default_backlight_intensity = 50 #%
-mnt_keyboard4_hidraw_device = "/dev/hidraw0"
 
 
 
 ### Modules
 import sys
 import argparse
+from collections import defaultdict
+from pathlib import Path
 from time import time, sleep
 from setproctitle import setproctitle
 
@@ -73,6 +74,31 @@ def argparse_delay_type(value):
   return v
 
 
+def list_hidraw_devices():
+  """List information about all available hidraw devices
+  """
+
+  devices = defaultdict(dict)
+
+  for path in Path("/dev").glob("hidraw*"):
+    with Path(f"/sys/class/hidraw/{path.name}/device/uevent").open() as f:
+      for line in f.readlines():
+        key, value = line.split("=")
+        devices[str(path)][key] = value.strip()
+
+  return devices
+
+
+def find_mnt_reform_keyboard_device():
+  """Find MNT Reform keyboard device by its unique ID
+  """
+
+  for name, values in list_hidraw_devices().items():
+    if values["HID_UNIQ"] == "RP2040":
+      return name
+
+  raise RuntimeError("MNT Reform Keyboard 4.0 US/LT not found")
+
 
 ### Main routine
 def main():
@@ -95,7 +121,15 @@ def main():
 	help = "Number of seconds between refreshes "
 		"(default: no refresh - set the pattern and exit)")
 
+  argparser.add_argument(
+	"-d", "--keyboard-hidraw-device",
+	type = str,
+	help = "Keyboard HID raw device file (default: auto-detect)")
+
   args = argparser.parse_args()
+
+  if args.keyboard_hidraw_device is None:
+    args.keyboard_hidraw_device = find_mnt_reform_keyboard_device()
 
   nb_colors = len(rainbow_rgb)
 
@@ -114,7 +148,7 @@ def main():
       while row < nb_led_rows:
 
         try:
-          with open(mnt_keyboard4_hidraw_device, "wb") as k:
+          with open(args.keyboard_hidraw_device, "wb") as k:
             k.write(b"xXRGB" + bytes([row] + [int(v * args.intensity / 100) \
 						for v in row_bgr]))
           row += 1
